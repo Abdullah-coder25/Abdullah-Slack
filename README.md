@@ -299,27 +299,26 @@ SUPABASE_ANON_KEY = "your_anon_key_here"
 ## Project Structure
 
 ```
-longhorn-preflight/
-├── setup.py                 # 🆕 Automated setup script (recommended)
-├── app.py                   # Main Streamlit application (uses streamlit-supabase-auth)
+LonghornPreflight/
+├── setup.py                 # Automated setup script
+├── app.py                   # Main Streamlit application with GitHub OAuth
 ├── schema.sql              # Database schema and RLS policies
-├── requirements.txt        # Python dependencies (includes streamlit-supabase-auth)
-├── dot.env.example         # 🆕 Environment template
-├── .env                    # Local environment variables (not in git)
+├── requirements.txt        # Python dependencies
+├── dot.env.example         # Environment template
+├── .env                    # Local environment variables (not in git, create from template)
+├── .gitignore              # Git ignore file (excludes .env and other files)
 ├── test_connection.py      # Basic Supabase connection test
 ├── test_db_operations.py   # Database operations test
 ├── test_oauth.py          # GitHub OAuth setup test
-├── log/                   # Progress logs and troubleshooting journey
-├── LonghornPreflight_PRD.md # Original project requirements
-├── SETUP_CHECKLIST.md      # Setup progress tracker
 └── README.md              # This file
 ```
 
 **Key Files:**
 - **`setup.py`** - 🚀 **Start here!** Automated setup with validation and guidance
-- **`app.py`** - Production-ready app with working GitHub OAuth
-- **`schema.sql`** - Complete database setup (recommended version)
-- **`dot.env.example`** - Template for environment variables
+- **`app.py`** - Production-ready app with working GitHub OAuth and error handling
+- **`schema.sql`** - Complete database setup with RLS policies
+- **`dot.env.example`** - Template for environment variables (copy to `.env`)
+- **`.gitignore`** - Prevents committing sensitive files like `.env`
 
 ## Security Notes
 
