@@ -52,14 +52,16 @@ if not SUPABASE_URL or not SUPABASE_ANON_KEY:
         st.markdown("""
         **Streamlit Cloud Setup Needed:**
         
-        1. Click **"Manage app"** (bottom right of this page)
-        2. Go to **Settings** → **Secrets**
-        3. Add your secrets in TOML format:
+        1. Go to your [Streamlit Cloud dashboard](https://share.streamlit.io/)
+        2. Find this app and click on it
+        3. Click the **⚙️ Settings** button (usually in the top right)
+        4. Go to **Secrets** tab
+        5. Add your secrets in TOML format:
         ```toml
         SUPABASE_URL = "https://your-project-ref.supabase.co"
         SUPABASE_ANON_KEY = "your_anon_key_here"
         ```
-        4. Save and restart the app
+        6. Click **Save** and the app will restart automatically
         
         💡 **Get credentials from:** [Supabase Dashboard](https://supabase.com/dashboard) → Settings → API
         """)
