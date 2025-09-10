@@ -24,9 +24,47 @@ if os.path.exists(".env"):
     load_dotenv()
     SUPABASE_URL = os.getenv("SUPABASE_URL")
     SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+    is_local = True
 else:
     SUPABASE_URL = st.secrets.get("SUPABASE_URL")
     SUPABASE_ANON_KEY = st.secrets.get("SUPABASE_ANON_KEY")
+    is_local = False
+
+# Check for missing configuration
+if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+    st.error("🚨 **Configuration Error: Missing Supabase Credentials**")
+    
+    if is_local:
+        st.markdown("""
+        **Local Development Setup Needed:**
+        
+        1. Create a `.env` file in your project root
+        2. Add your Supabase credentials:
+        ```
+        SUPABASE_URL=https://your-project-ref.supabase.co
+        SUPABASE_ANON_KEY=your_anon_key_here
+        ```
+        3. Get these values from [Supabase Dashboard](https://supabase.com/dashboard) → Settings → API
+        
+        📖 **Need help?** Check the README.md for detailed setup instructions.
+        """)
+    else:
+        st.markdown("""
+        **Streamlit Cloud Setup Needed:**
+        
+        1. Click **"Manage app"** (bottom right of this page)
+        2. Go to **Settings** → **Secrets**
+        3. Add your secrets in TOML format:
+        ```toml
+        SUPABASE_URL = "https://your-project-ref.supabase.co"
+        SUPABASE_ANON_KEY = "your_anon_key_here"
+        ```
+        4. Save and restart the app
+        
+        💡 **Get credentials from:** [Supabase Dashboard](https://supabase.com/dashboard) → Settings → API
+        """)
+    
+    st.stop()  # Stop execution here
 
 # Initialize Supabase client
 @st.cache_resource
