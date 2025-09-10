@@ -138,7 +138,9 @@ This verifies your GitHub OAuth app is configured correctly.
 
 6. Go to **Authentication → URL Configuration** and set:
    - **Site URL:** `http://localhost:8501`
-   - **Redirect URLs:** Add `http://localhost:8501/`
+   - **Redirect URLs:** Add BOTH URLs for local and production use:
+     - `http://localhost:8501/`
+     - `https://*.streamlit.app/` (wildcard for Streamlit Cloud)
 
 **✅ Test combined setup:**
 ```bash
@@ -207,10 +209,22 @@ SUPABASE_ANON_KEY = "your_anon_key_here"
 
 ### 4. Update Supabase Redirect URLs
 
-1. Get your Streamlit Cloud app URL (e.g., `https://your-app.streamlit.app`)
-2. In Supabase Dashboard → Authentication → URL Configuration:
-   - Add the URL to **Redirect URLs**
-   - Optionally update **Site URL** to your production URL
+**Important:** You need to add BOTH local and production URLs for the app to work in both environments.
+
+1. Go to Supabase Dashboard → **Authentication** → **URL Configuration**
+2. In the **Redirect URLs** section, add BOTH:
+   - `http://localhost:8501/` (for local development)
+   - `https://*.streamlit.app/` (wildcard for all Streamlit Cloud apps)
+   
+   **Alternative:** Instead of the wildcard, you can add your specific app URL:
+   - `https://your-app-name.streamlit.app/`
+
+3. Optionally update **Site URL** to your production URL
+
+**Why both URLs?** 
+- Local development needs `http://localhost:8501/`
+- Production deployment needs your Streamlit Cloud URL
+- The wildcard `https://*.streamlit.app/` covers all Streamlit Cloud deployments
 
 ## Testing Checklist
 
