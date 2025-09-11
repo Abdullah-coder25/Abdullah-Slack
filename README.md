@@ -207,19 +207,9 @@ SUPABASE_URL = "your_project_url_here"
 SUPABASE_ANON_KEY = "your_anon_key_here"
 ```
 
-### 4. Update Supabase Redirect URLs
+### 4. Verify Deployment
 
-**Important:** You need to add BOTH local and production URLs for the app to work in both environments.
-
-1. Go to Supabase Dashboard → **Authentication** → **URL Configuration**
-2. In the **Redirect URLs** section, add BOTH:
-   - `http://localhost:8501/` (for local development)
-   - `https://*.streamlit.app/` (wildcard for all Streamlit Cloud apps)
-   
-   **Alternative:** Instead of the wildcard, you can add your specific app URL:
-   - `https://your-app-name.streamlit.app/`
-
-3. Optionally update **Site URL** to your production URL
+Your app should now be live! The redirect URLs were already configured in Step 3 to work with both local development and Streamlit Cloud.
 
 **Why both URLs?** 
 - Local development needs `http://localhost:8501/`
