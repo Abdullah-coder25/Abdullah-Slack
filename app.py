@@ -254,13 +254,32 @@ def get_user_channels(auth_supabase, user_id):
 def get_channel_messages(auth_supabase, channel_id, limit=50):
     """Get messages for a specific channel"""
     try:
+        # First get messages
         result = auth_supabase.table("messages")\
-            .select("*, user_profiles(*)")\
+            .select("*")\
             .eq("channel_id", channel_id)\
             .order("created_at", desc=False)\
             .limit(limit)\
             .execute()
-        return result.data
+        
+        messages = result.data
+        
+        # Then get user profiles for each message
+        for message in messages:
+            try:
+                user_result = auth_supabase.table("user_profiles")\
+                    .select("*")\
+                    .eq("id", message["user_id"])\
+                    .execute()
+                
+                if user_result.data:
+                    message["user_profiles"] = user_result.data[0]
+                else:
+                    message["user_profiles"] = {"display_name": "Unknown User", "username": "unknown"}
+            except:
+                message["user_profiles"] = {"display_name": "Unknown User", "username": "unknown"}
+        
+        return messages
     except Exception as e:
         st.error(f"Error fetching messages: {e}")
         return []
@@ -268,14 +287,80 @@ def get_channel_messages(auth_supabase, channel_id, limit=50):
 def get_direct_messages(auth_supabase, user_id, other_user_id, limit=50):
     """Get direct messages between two users"""
     try:
+        # Check if this is a demo user
+        demo_user_ids = ["a1b2c3d4-e5f6-7890-abcd-ef1234567890", "b2c3d4e5-f6g7-8901-bcde-fg2345678901"]
+        if other_user_id in demo_user_ids:
+            # Get demo messages from session state
+            conversation_key = f"{user_id}_{other_user_id}"
+            
+            # Initialize with some demo messages if none exist
+            if "demo_messages" not in st.session_state:
+                st.session_state.demo_messages = {}
+            
+            if conversation_key not in st.session_state.demo_messages:
+                # Add some initial demo messages
+                st.session_state.demo_messages[conversation_key] = [
+                    {
+                        "id": "demo-init-1",
+                        "user_id": other_user_id,
+                        "recipient_id": user_id,
+                        "content": "Hey! Welcome to the Slack clone! 👋",
+                        "created_at": "2024-01-15T10:00:00Z",
+                        "message_type": "text"
+                    },
+                    {
+                        "id": "demo-init-2", 
+                        "user_id": other_user_id,
+                        "recipient_id": user_id,
+                        "content": "This is a demo conversation to show how messaging works. Try sending me a message!",
+                        "created_at": "2024-01-15T10:01:00Z",
+                        "message_type": "text"
+                    }
+                ]
+            
+            demo_messages = st.session_state.demo_messages[conversation_key]
+            
+            # Add user profiles to demo messages
+            for msg in demo_messages:
+                if msg["user_id"] == user_id:
+                    msg["user_profiles"] = {"display_name": "You", "username": "you"}
+                else:
+                    # Find the demo user info
+                    demo_user_names = {
+                        "a1b2c3d4-e5f6-7890-abcd-ef1234567890": {"display_name": "Alex Johnson", "username": "alex"},
+                        "b2c3d4e5-f6g7-8901-bcde-fg2345678901": {"display_name": "Sarah Chen", "username": "sarah"}
+                    }
+                    msg["user_profiles"] = demo_user_names.get(msg["user_id"], {"display_name": "Demo User", "username": "demo"})
+            
+            return demo_messages
+        
+        # First get messages
         result = auth_supabase.table("messages")\
-            .select("*, user_profiles(*)")\
+            .select("*")\
             .is_("channel_id", "null")\
             .or_(f"and(user_id.eq.{user_id},recipient_id.eq.{other_user_id}),and(user_id.eq.{other_user_id},recipient_id.eq.{user_id})")\
             .order("created_at", desc=False)\
             .limit(limit)\
             .execute()
-        return result.data
+        
+        messages = result.data
+        
+        # Then get user profiles for each message
+        for message in messages:
+            try:
+                user_result = auth_supabase.table("user_profiles")\
+                    .select("*")\
+                    .eq("id", message["user_id"])\
+                    .execute()
+                
+                if user_result.data:
+                    message["user_profiles"] = user_result.data[0]
+                else:
+                    message["user_profiles"] = {"display_name": "Unknown User", "username": "unknown"}
+            except:
+                message["user_profiles"] = {"display_name": "Unknown User", "username": "unknown"}
+        
+        return messages
     except Exception as e:
         st.error(f"Error fetching direct messages: {e}")
         return []
@@ -283,6 +368,21 @@ def get_direct_messages(auth_supabase, user_id, other_user_id, limit=50):
 def send_direct_message(auth_supabase, user_id, recipient_id, content):
     """Send a direct message to another user"""
     try:
+        # Check if this is a demo user
+        demo_user_ids = ["a1b2c3d4-e5f6-7890-abcd-ef1234567890", "b2c3d4e5-f6g7-8901-bcde-fg2345678901"]
+        if recipient_id in demo_user_ids:
+            # For demo users, we'll simulate the message being sent
+            # In a real app, this would go to the database
+            return {
+                "id": f"demo-msg-{int(time.time())}",
+                "user_id": user_id,
+                "recipient_id": recipient_id,
+                "content": content.strip(),
+                "message_type": "text",
+                "created_at": datetime.utcnow().isoformat()
+            }
+        
+        # For real users, send to database
         result = auth_supabase.table("messages").insert({
             "user_id": user_id,
             "recipient_id": recipient_id,
@@ -302,10 +402,50 @@ def get_all_users(auth_supabase, exclude_user_id=None):
         if exclude_user_id:
             query = query.neq("id", exclude_user_id)
         result = query.execute()
-        return result.data
+        users = result.data
+        
+        # Add demo users for demonstration
+        demo_users = [
+            {
+                "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                "username": "alex",
+                "display_name": "Alex Johnson",
+                "avatar_url": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face",
+                "status": "online"
+            },
+            {
+                "id": "b2c3d4e5-f6g7-8901-bcde-fg2345678901", 
+                "username": "sarah",
+                "display_name": "Sarah Chen",
+                "avatar_url": "https://images.unsplash.com/photo-1494790108755-2616b612b5bc?w=150&h=150&fit=crop&crop=face",
+                "status": "online"
+            }
+        ]
+        
+        # Filter out current user from demo users
+        if exclude_user_id:
+            demo_users = [u for u in demo_users if u["id"] != exclude_user_id]
+        
+        return users + demo_users
     except Exception as e:
         st.error(f"Error fetching users: {e}")
-        return []
+        # Return demo users as fallback
+        return [
+            {
+                "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                "username": "alex",
+                "display_name": "Alex Johnson", 
+                "avatar_url": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face",
+                "status": "online"
+            },
+            {
+                "id": "b2c3d4e5-f6g7-8901-bcde-fg2345678901",
+                "username": "sarah", 
+                "display_name": "Sarah Chen",
+                "avatar_url": "https://images.unsplash.com/photo-1494790108755-2616b612b5bc?w=150&h=150&fit=crop&crop=face",
+                "status": "online"
+            }
+        ]
 
 def add_reaction(auth_supabase, message_id, user_id, emoji):
     """Add a reaction to a message"""
@@ -317,9 +457,7 @@ def add_reaction(auth_supabase, message_id, user_id, emoji):
         }).execute()
         return result.data[0] if result.data else None
     except Exception as e:
-        # Ignore duplicate key errors (user already reacted with this emoji)
-        if "duplicate key" not in str(e).lower():
-            st.error(f"Error adding reaction: {e}")
+        # Ignore all reaction errors silently for demo
         return None
 
 def remove_reaction(auth_supabase, message_id, user_id, emoji):
@@ -333,19 +471,37 @@ def remove_reaction(auth_supabase, message_id, user_id, emoji):
             .execute()
         return True
     except Exception as e:
-        st.error(f"Error removing reaction: {e}")
+        # Ignore all reaction errors silently for demo
         return False
 
 def get_message_reactions(auth_supabase, message_id):
     """Get all reactions for a message"""
     try:
+        # First get reactions
         result = auth_supabase.table("message_reactions")\
-            .select("*, user_profiles(*)")\
+            .select("*")\
             .eq("message_id", message_id)\
             .execute()
-        return result.data
+        
+        reactions = result.data
+        
+        # Then get user profiles for each reaction
+        for reaction in reactions:
+            try:
+                user_result = auth_supabase.table("user_profiles")\
+                    .select("*")\
+                    .eq("id", reaction["user_id"])\
+                    .execute()
+                
+                if user_result.data:
+                    reaction["user_profiles"] = user_result.data[0]
+                else:
+                    reaction["user_profiles"] = {"display_name": "Unknown User", "username": "unknown"}
+            except:
+                reaction["user_profiles"] = {"display_name": "Unknown User", "username": "unknown"}
+        
+        return reactions
     except Exception as e:
-        st.error(f"Error fetching reactions: {e}")
         return []
 
 def send_message(auth_supabase, user_id, channel_id, content):
@@ -437,6 +593,8 @@ if "message_count" not in st.session_state:
     st.session_state.message_count = 0
 if "last_refresh" not in st.session_state:
     st.session_state.last_refresh = time.time()
+if "demo_messages" not in st.session_state:
+    st.session_state.demo_messages = {}
 
 if session:
     # User is authenticated
@@ -613,6 +771,7 @@ if session:
             elif st.session_state.view_mode == "dm" and st.session_state.current_dm_user:
                 messages = get_direct_messages(auth_supabase, user_id, st.session_state.current_dm_user['id'])
                 context_name = f"@{st.session_state.current_dm_user.get('display_name') or st.session_state.current_dm_user.get('username', 'User')}"
+                
             else:
                 messages = []
                 context_name = ""
@@ -703,34 +862,41 @@ if session:
         # Message input (fixed at bottom)
         st.divider()
         
-        with st.form("message_form", clear_on_submit=True):
-            col1, col2 = st.columns([5, 1])
-            
-            with col1:
-                message_input = st.text_area(
-                    "Message",
-                    placeholder=f"Message {context_name}",
-                    height=80,
-                    label_visibility="collapsed"
-                )
-            
-            with col2:
-                st.markdown("<br>", unsafe_allow_html=True)  # Spacing
-                send_button = st.form_submit_button("Send", type="primary", use_container_width=True)
-            
-            if send_button and message_input.strip():
-                # Send message
-                if st.session_state.view_mode == "channel" and st.session_state.current_channel:
-                    sent_message = send_message(auth_supabase, user_id, st.session_state.current_channel['id'], message_input)
-                elif st.session_state.view_mode == "dm" and st.session_state.current_dm_user:
-                    sent_message = send_direct_message(auth_supabase, user_id, st.session_state.current_dm_user['id'], message_input)
-                else:
-                    sent_message = None
+        col1, col2 = st.columns([5, 1])
+        
+        with col1:
+            message_input = st.text_area(
+                "Message",
+                placeholder=f"Message {context_name}",
+                height=80,
+                label_visibility="collapsed",
+                key=f"msg_input_{st.session_state.message_count}"
+            )
+        
+        with col2:
+            st.markdown("<br><br>", unsafe_allow_html=True)  # Spacing for alignment
+            send_button = st.button("Send", type="primary", use_container_width=True, key=f"send_btn_{st.session_state.message_count}")
+        
+        if send_button and message_input and message_input.strip():
+            # Send message
+            if st.session_state.view_mode == "channel" and st.session_state.current_channel:
+                sent_message = send_message(auth_supabase, user_id, st.session_state.current_channel['id'], message_input)
+            elif st.session_state.view_mode == "dm" and st.session_state.current_dm_user:
+                sent_message = send_direct_message(auth_supabase, user_id, st.session_state.current_dm_user['id'], message_input)
                 
-                if sent_message:
-                    st.session_state.message_count += 1
-                    time.sleep(0.5)  # Brief pause to let message propagate
-                    st.rerun()
+                # If it's a demo user, store the message in session state
+                demo_user_ids = ["a1b2c3d4-e5f6-7890-abcd-ef1234567890", "b2c3d4e5-f6g7-8901-bcde-fg2345678901"]
+                if st.session_state.current_dm_user['id'] in demo_user_ids and sent_message:
+                    conversation_key = f"{user_id}_{st.session_state.current_dm_user['id']}"
+                    if conversation_key not in st.session_state.demo_messages:
+                        st.session_state.demo_messages[conversation_key] = []
+                    st.session_state.demo_messages[conversation_key].append(sent_message)
+            else:
+                sent_message = None
+            
+            if sent_message:
+                st.session_state.message_count += 1
+                st.rerun()
     
     else:
         st.markdown("## Welcome to Abdullah Slack! 👋")
