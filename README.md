@@ -1,13 +1,23 @@
-# Longhorn Preflight
+# Abdullah Slack Clone
 
-A minimal Streamlit + Supabase demo application with GitHub authentication.
+A full-featured Slack clone built with Streamlit + Supabase for the Longhorn Startup assignment.
 
-## Features
+## 🚀 Features
 
-- GitHub OAuth authentication via Supabase
-- Post and view messages
-- Row Level Security (RLS) policies
-- Works locally and on Streamlit Community Cloud
+### Core Slack Functionality
+- **📋 Channels & Workspaces** - Create and join different channels for organized conversations
+- **💬 Real-time Messaging** - Chat with your team with auto-refreshing messages every 5 seconds
+- **👥 User Profiles** - GitHub integration with avatars, display names, and usernames
+- **💌 Direct Messages** - Private messaging between team members
+- **😊 Message Reactions** - Add emoji reactions to messages (👍, ❤️, 😄, and more)
+- **🔒 Secure Authentication** - GitHub OAuth with Row Level Security (RLS) policies
+
+### Technical Features
+- **Real-time Updates** - Messages refresh automatically
+- **Responsive Design** - Slack-like interface with sidebar navigation
+- **Database Security** - Comprehensive RLS policies for data protection
+- **Scalable Architecture** - Built on Supabase for production-ready performance
+- **Works Everywhere** - Runs locally and on Streamlit Community Cloud
 
 ## Prerequisites
 
@@ -43,10 +53,15 @@ source venv/bin/activate  # On Windows WSL: same command
 
 ## Quick Start
 
-**Automated Setup (Recommended):**
+**Quick Demo (Recommended):**
 ```bash
 git clone <your-repo-url>
-cd longhorn-preflight
+cd Abdullah-Slack
+python run_demo.py
+```
+
+**Automated Setup:**
+```bash
 python setup.py
 ```
 
@@ -93,8 +108,8 @@ The setup script will:
 
 5. **Edit `.env`** and add your Supabase credentials:
    ```env
-   SUPABASE_URL=https://your-project-ref.supabase.co
-   SUPABASE_ANON_KEY=your_anon_key_here
+   SUPABASE_URL=https://klipyilhawurbqwglved.supabase.co
+   SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtsaXB5aWxoYXd1cmJxd2dsdmVkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc5ODY1MzcsImV4cCI6MjA3MzU2MjUzN30.p2rum3idcTy2rKxPnqG4xDbUSaBgEfq9BXK2fJJIaM4
    APP_URL=http://localhost:8501
    ```
 

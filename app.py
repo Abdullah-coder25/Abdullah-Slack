@@ -1,23 +1,102 @@
 #!/usr/bin/env python3
 """
-Longhorn Preflight - Using streamlit-supabase-auth (Fixed)
-Simplified GitHub authentication with proper OAuth handling
+Abdullah Slack Clone - Real-time chat application
+Built with Streamlit + Supabase for the Longhorn Startup assignment
 """
 
 import os
 import streamlit as st
 from supabase import create_client, Client
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
+import json
 from streamlit_supabase_auth import login_form, logout_button
+from typing import List, Dict, Optional, Any
 
 # Page config
 st.set_page_config(
-    page_title="Longhorn Preflight",
-    page_icon="🚀",
-    layout="centered"
+    page_title="Abdullah Slack",
+    page_icon="💬",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
+
+# Custom CSS for Slack-like appearance
+st.markdown("""
+<style>
+    /* Main container styling */
+    .main .block-container {
+        padding-top: 1rem;
+        padding-bottom: 0rem;
+        max-width: none;
+    }
+    
+    /* Sidebar styling */
+    .css-1d391kg {
+        background-color: #3f0f40;
+    }
+    
+    /* Hide Streamlit branding */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    
+    /* Chat message styling */
+    .chat-message {
+        padding: 8px 12px;
+        margin: 4px 0;
+        border-radius: 8px;
+        background-color: #f8f9fa;
+        border-left: 3px solid #007bff;
+    }
+    
+    .chat-message-own {
+        background-color: #007bff;
+        color: white;
+        border-left: 3px solid #0056b3;
+        margin-left: 20px;
+    }
+    
+    /* Channel list styling */
+    .channel-item {
+        padding: 4px 8px;
+        margin: 2px 0;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    
+    .channel-item:hover {
+        background-color: rgba(255,255,255,0.1);
+    }
+    
+    .channel-active {
+        background-color: #007bff;
+        color: white;
+    }
+    
+    /* User status */
+    .user-online {
+        color: #28a745;
+    }
+    
+    .user-offline {
+        color: #6c757d;
+    }
+    
+    /* Message input */
+    .stTextArea textarea {
+        border-radius: 20px;
+        border: 1px solid #ddd;
+        padding: 10px 15px;
+    }
+    
+    /* Compact layout */
+    .element-container {
+        margin-bottom: 0.5rem;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # Load environment variables
 if os.path.exists(".env"):
@@ -62,13 +141,9 @@ if not SUPABASE_URL or not SUPABASE_ANON_KEY:
         SUPABASE_ANON_KEY = "your_anon_key_here"
         ```
         6. Click **Save** and the app will restart automatically
-        
-        ⚠️ **Important:** Make sure to include the quotes around both values or you'll get "Invalid format: please enter valid TOML" error.
-        
-        💡 **Get credentials from:** [Supabase Dashboard](https://supabase.com/dashboard) → Settings → API
         """)
     
-    st.stop()  # Stop execution here
+    st.stop()
 
 # Initialize Supabase client
 @st.cache_resource
@@ -77,165 +152,617 @@ def init_supabase():
 
 supabase = init_supabase()
 
-# Header
-st.title("🚀 Longhorn Preflight")
-st.markdown("Simple message board with GitHub authentication via Supabase")
-st.divider()
+# Helper functions
+def get_authenticated_supabase(session):
+    """Get authenticated Supabase client"""
+    auth_supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+    access_token = session.get("access_token")
+    if access_token:
+        auth_supabase.auth.set_session(access_token, session.get("refresh_token", ""))
+    return auth_supabase
+
+def create_or_update_user_profile(auth_supabase, user):
+    """Create or update user profile"""
+    try:
+        user_id = user.get("id")
+        email = user.get("email", "")
+        
+        # Extract username from email or use GitHub username
+        username = email.split("@")[0] if email else f"user_{user_id[:8]}"
+        
+        # Get GitHub user data if available
+        user_metadata = user.get("user_metadata", {})
+        avatar_url = user_metadata.get("avatar_url", "")
+        display_name = user_metadata.get("full_name") or user_metadata.get("name") or username
+        
+        # Upsert user profile
+        result = auth_supabase.table("user_profiles").upsert({
+            "id": user_id,
+            "username": username,
+            "display_name": display_name,
+            "avatar_url": avatar_url,
+            "status": "online",
+            "updated_at": datetime.utcnow().isoformat()
+        }).execute()
+        
+        # Ensure default workspace and general channel exist
+        ensure_default_workspace_and_channel(auth_supabase, user_id)
+        
+        return result.data[0] if result.data else None
+    except Exception as e:
+        st.error(f"Error creating user profile: {e}")
+        return None
+
+def ensure_default_workspace_and_channel(auth_supabase, user_id):
+    """Ensure default workspace and general channel exist"""
+    try:
+        # Check if default workspace exists
+        workspace_result = auth_supabase.table("workspaces").select("*").eq("name", "Default Workspace").execute()
+        
+        if not workspace_result.data:
+            # Create default workspace
+            workspace_result = auth_supabase.table("workspaces").insert({
+                "name": "Default Workspace",
+                "description": "Main workspace for the team",
+                "created_by": user_id
+            }).execute()
+            
+            if workspace_result.data:
+                workspace_id = workspace_result.data[0]["id"]
+            else:
+                return
+        else:
+            workspace_id = workspace_result.data[0]["id"]
+        
+        # Check if general channel exists
+        channel_result = auth_supabase.table("channels").select("*").eq("name", "general").eq("workspace_id", workspace_id).execute()
+        
+        if not channel_result.data:
+            # Create general channel
+            channel_result = auth_supabase.table("channels").insert({
+                "workspace_id": workspace_id,
+                "name": "general",
+                "description": "General discussion channel",
+                "created_by": user_id
+            }).execute()
+            
+            if channel_result.data:
+                channel_id = channel_result.data[0]["id"]
+                # Auto-join the creator to the general channel
+                join_channel(auth_supabase, user_id, channel_id)
+        else:
+            channel_id = channel_result.data[0]["id"]
+            # Make sure user is a member of general channel
+            join_channel(auth_supabase, user_id, channel_id)
+            
+    except Exception as e:
+        # Silently handle errors to avoid breaking the user experience
+        pass
+
+def get_user_channels(auth_supabase, user_id):
+    """Get channels user is a member of"""
+    try:
+        result = auth_supabase.table("channels")\
+            .select("*, channel_members!inner(*)")\
+            .eq("channel_members.user_id", user_id)\
+            .execute()
+        return result.data
+    except Exception as e:
+        st.error(f"Error fetching channels: {e}")
+        return []
+
+def get_channel_messages(auth_supabase, channel_id, limit=50):
+    """Get messages for a specific channel"""
+    try:
+        result = auth_supabase.table("messages")\
+            .select("*, user_profiles(*)")\
+            .eq("channel_id", channel_id)\
+            .order("created_at", desc=False)\
+            .limit(limit)\
+            .execute()
+        return result.data
+    except Exception as e:
+        st.error(f"Error fetching messages: {e}")
+        return []
+
+def get_direct_messages(auth_supabase, user_id, other_user_id, limit=50):
+    """Get direct messages between two users"""
+    try:
+        result = auth_supabase.table("messages")\
+            .select("*, user_profiles(*)")\
+            .is_("channel_id", "null")\
+            .or_(f"and(user_id.eq.{user_id},recipient_id.eq.{other_user_id}),and(user_id.eq.{other_user_id},recipient_id.eq.{user_id})")\
+            .order("created_at", desc=False)\
+            .limit(limit)\
+            .execute()
+        return result.data
+    except Exception as e:
+        st.error(f"Error fetching direct messages: {e}")
+        return []
+
+def send_direct_message(auth_supabase, user_id, recipient_id, content):
+    """Send a direct message to another user"""
+    try:
+        result = auth_supabase.table("messages").insert({
+            "user_id": user_id,
+            "recipient_id": recipient_id,
+            "content": content.strip(),
+            "message_type": "text",
+            "channel_id": None
+        }).execute()
+        return result.data[0] if result.data else None
+    except Exception as e:
+        st.error(f"Error sending direct message: {e}")
+        return None
+
+def get_all_users(auth_supabase, exclude_user_id=None):
+    """Get all users for direct messaging"""
+    try:
+        query = auth_supabase.table("user_profiles").select("*")
+        if exclude_user_id:
+            query = query.neq("id", exclude_user_id)
+        result = query.execute()
+        return result.data
+    except Exception as e:
+        st.error(f"Error fetching users: {e}")
+        return []
+
+def add_reaction(auth_supabase, message_id, user_id, emoji):
+    """Add a reaction to a message"""
+    try:
+        result = auth_supabase.table("message_reactions").insert({
+            "message_id": message_id,
+            "user_id": user_id,
+            "emoji": emoji
+        }).execute()
+        return result.data[0] if result.data else None
+    except Exception as e:
+        # Ignore duplicate key errors (user already reacted with this emoji)
+        if "duplicate key" not in str(e).lower():
+            st.error(f"Error adding reaction: {e}")
+        return None
+
+def remove_reaction(auth_supabase, message_id, user_id, emoji):
+    """Remove a reaction from a message"""
+    try:
+        result = auth_supabase.table("message_reactions")\
+            .delete()\
+            .eq("message_id", message_id)\
+            .eq("user_id", user_id)\
+            .eq("emoji", emoji)\
+            .execute()
+        return True
+    except Exception as e:
+        st.error(f"Error removing reaction: {e}")
+        return False
+
+def get_message_reactions(auth_supabase, message_id):
+    """Get all reactions for a message"""
+    try:
+        result = auth_supabase.table("message_reactions")\
+            .select("*, user_profiles(*)")\
+            .eq("message_id", message_id)\
+            .execute()
+        return result.data
+    except Exception as e:
+        st.error(f"Error fetching reactions: {e}")
+        return []
+
+def send_message(auth_supabase, user_id, channel_id, content):
+    """Send a message to a channel"""
+    try:
+        result = auth_supabase.table("messages").insert({
+            "user_id": user_id,
+            "channel_id": channel_id,
+            "content": content.strip(),
+            "message_type": "text"
+        }).execute()
+        return result.data[0] if result.data else None
+    except Exception as e:
+        st.error(f"Error sending message: {e}")
+        return None
+
+def join_channel(auth_supabase, user_id, channel_id):
+    """Join a user to a channel"""
+    try:
+        result = auth_supabase.table("channel_members").insert({
+            "user_id": user_id,
+            "channel_id": channel_id
+        }).execute()
+        return True
+    except Exception as e:
+        if "duplicate key" not in str(e).lower():
+            st.error(f"Error joining channel: {e}")
+        return False
+
+def create_channel(auth_supabase, user_id, workspace_id, name, description=""):
+    """Create a new channel"""
+    try:
+        # Create channel
+        result = auth_supabase.table("channels").insert({
+            "workspace_id": workspace_id,
+            "name": name,
+            "description": description,
+            "created_by": user_id
+        }).execute()
+        
+        if result.data:
+            channel_id = result.data[0]["id"]
+            # Auto-join creator to channel
+            join_channel(auth_supabase, user_id, channel_id)
+            return result.data[0]
+        return None
+    except Exception as e:
+        st.error(f"Error creating channel: {e}")
+        return None
+
+def format_message_time(created_at):
+    """Format message timestamp"""
+    try:
+        msg_time = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        now = datetime.now(msg_time.tzinfo)
+        diff = now - msg_time
+        
+        if diff.days > 0:
+            return msg_time.strftime("%m/%d/%Y %I:%M %p")
+        elif diff.seconds > 3600:
+            hours = diff.seconds // 3600
+            return f"{hours}h ago"
+        elif diff.seconds > 60:
+            minutes = diff.seconds // 60
+            return f"{minutes}m ago"
+        else:
+            return "just now"
+    except:
+        return created_at
 
 # Set environment variable for streamlit-supabase-auth
 os.environ["SUPABASE_KEY"] = SUPABASE_ANON_KEY
 
-# Authentication using streamlit-supabase-auth
+# Authentication
 session = login_form(
     url=SUPABASE_URL,
     apiKey=SUPABASE_ANON_KEY,
-    providers=["github"]  # Only GitHub provider
+    providers=["github"]
 )
 
-# Check authentication state
+# Initialize session state
+if "current_channel" not in st.session_state:
+    st.session_state.current_channel = None
+if "current_dm_user" not in st.session_state:
+    st.session_state.current_dm_user = None
+if "view_mode" not in st.session_state:
+    st.session_state.view_mode = "channel"  # "channel" or "dm"
+if "message_count" not in st.session_state:
+    st.session_state.message_count = 0
+if "last_refresh" not in st.session_state:
+    st.session_state.last_refresh = time.time()
+
 if session:
     # User is authenticated
     user = session["user"]
+    user_id = user.get("id")
+    auth_supabase = get_authenticated_supabase(session)
     
-    # User info section
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        email = user.get("email", "Unknown")
-        st.success(f"✅ Signed in as: **{email}**")
-        st.caption(f"User ID: {user.get('id', 'Unknown')[:8]}...")
-    with col2:
-        logout_button(apiKey=SUPABASE_ANON_KEY)
+    # Create/update user profile
+    user_profile = create_or_update_user_profile(auth_supabase, user)
     
-    # Debug info
-    with st.expander("🔍 Debug Info"):
-        st.write("**Session Keys:**", list(session.keys()))
-        st.write("**Has Access Token:**", "access_token" in session)
-        if "access_token" in session:
-            token = session["access_token"]
-            st.write("**Token Length:**", len(token))
-            st.write("**Token Preview:**", f"{token[:20]}..." if len(token) > 20 else token)
-    
-    st.divider()
-    
-    # Message posting section
-    st.subheader("✍️ Post a Message")
-    
-    with st.form("message_form"):
-        message_content = st.text_area(
-            "Your message:",
-            max_chars=1000,
-            placeholder="What's on your mind? (max 1000 characters)"
-        )
+    # Sidebar - Channel Navigation
+    with st.sidebar:
+        st.markdown("### 💬 Abdullah Slack")
         
-        submitted = st.form_submit_button("📤 Post Message", type="primary")
-        
-        if submitted and message_content.strip():
-            try:
-                # Get user ID and access token
-                user_id = user.get("id")
-                access_token = session.get("access_token")
-                
-                if not access_token:
-                    st.error("No access token found. Please sign out and sign in again.")
+        # User info
+        if user_profile:
+            col1, col2 = st.columns([1, 3])
+            with col1:
+                if user_profile.get("avatar_url"):
+                    st.markdown(f'<img src="{user_profile["avatar_url"]}" width="40" style="border-radius: 50%;">', unsafe_allow_html=True)
                 else:
-                    # Create authenticated Supabase client
-                    auth_supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
-                    auth_supabase.auth.set_session(access_token, session.get("refresh_token", ""))
-                    
-                    # Insert message using authenticated client
-                    result = auth_supabase.table("messages").insert({
-                        "user_id": user_id,
-                        "content": message_content.strip()
-                    }).execute()
-                    
-                    st.success("Message posted successfully!")
-                    st.balloons()
-                    time.sleep(1)
+                    st.markdown("👤")
+            with col2:
+                st.markdown(f"**{user_profile.get('display_name', 'User')}**")
+                st.markdown('<span class="user-online">● Online</span>', unsafe_allow_html=True)
+        
+        logout_button(apiKey=SUPABASE_ANON_KEY)
+        
+        st.divider()
+        
+        # Channels section
+        st.markdown("### 📋 Channels")
+        
+        # Get user's channels
+        channels = get_user_channels(auth_supabase, user_id)
+        
+        # Auto-join general channel if not already joined
+        if not any(ch["name"] == "general" for ch in channels):
+            join_channel(auth_supabase, user_id, 1)  # Assuming general channel ID is 1
+            channels = get_user_channels(auth_supabase, user_id)
+        
+        # Set default channel
+        if not st.session_state.current_channel and channels:
+            st.session_state.current_channel = channels[0]
+        
+        # Channel list
+        for channel in channels:
+            channel_name = f"# {channel['name']}"
+            is_active = (st.session_state.view_mode == "channel" and 
+                        st.session_state.current_channel and 
+                        st.session_state.current_channel['id'] == channel['id'])
+            
+            if st.button(channel_name, key=f"channel_{channel['id']}", use_container_width=True, type="primary" if is_active else "secondary"):
+                st.session_state.current_channel = channel
+                st.session_state.current_dm_user = None
+                st.session_state.view_mode = "channel"
+                st.rerun()
+        
+        st.divider()
+        
+        # Direct Messages section
+        st.markdown("### 💬 Direct Messages")
+        
+        # Get all users for DMs
+        all_users = get_all_users(auth_supabase, user_id)
+        
+        for dm_user in all_users:
+            user_name = f"@ {dm_user.get('display_name') or dm_user.get('username', 'User')}"
+            is_active = (st.session_state.view_mode == "dm" and 
+                        st.session_state.current_dm_user and 
+                        st.session_state.current_dm_user['id'] == dm_user['id'])
+            
+            col1, col2 = st.columns([1, 4])
+            with col1:
+                if dm_user.get('avatar_url'):
+                    st.markdown(f'<img src="{dm_user["avatar_url"]}" width="24" style="border-radius: 50%;">', unsafe_allow_html=True)
+                else:
+                    st.markdown("👤")
+            with col2:
+                if st.button(user_name, key=f"dm_{dm_user['id']}", use_container_width=True, type="primary" if is_active else "secondary"):
+                    st.session_state.current_dm_user = dm_user
+                    st.session_state.current_channel = None
+                    st.session_state.view_mode = "dm"
                     st.rerun()
-            except Exception as e:
-                st.error(f"Error posting message: {e}")
-                st.info("Make sure the database schema has been created in Supabase")
-        elif submitted:
-            st.warning("Please enter a message")
-    
-    st.divider()
-    
-    # Messages display section
-    st.subheader("📨 Recent Messages")
-    
-    try:
-        # Create authenticated client for reading messages
-        access_token = session.get("access_token")
-        if access_token:
-            auth_supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
-            auth_supabase.auth.set_session(access_token, session.get("refresh_token", ""))
-            # Fetch recent messages with authenticated client
-            result = auth_supabase.table("messages")\
-                .select("*")\
-                .order("created_at", desc=True)\
-                .limit(50)\
-                .execute()
-        else:
-            # Fallback to unauthenticated client (might work if RLS allows public read)
-            result = supabase.table("messages")\
-                .select("*")\
-                .order("created_at", desc=True)\
-                .limit(50)\
-                .execute()
         
-        messages = result.data
+        if not all_users:
+            st.info("No other users online")
         
-        if messages:
-            for msg in messages:
-                # Create message container
-                with st.container():
-                    # Parse timestamp
-                    created_at = datetime.fromisoformat(msg["created_at"].replace("Z", "+00:00"))
-                    formatted_time = created_at.strftime("%Y-%m-%d %H:%M UTC")
-                    
-                    # Display message
+        st.divider()
+        
+        # Create new channel
+        with st.expander("➕ Create Channel"):
+            with st.form("create_channel"):
+                new_channel_name = st.text_input("Channel name", placeholder="e.g., random")
+                new_channel_desc = st.text_input("Description (optional)", placeholder="Channel description")
+                
+                if st.form_submit_button("Create Channel"):
+                    if new_channel_name.strip():
+                        # Clean channel name
+                        clean_name = new_channel_name.strip().lower().replace(" ", "-")
+                        new_channel = create_channel(auth_supabase, user_id, 1, clean_name, new_channel_desc)
+                        if new_channel:
+                            st.success(f"Created #{clean_name}")
+                            time.sleep(1)
+                            st.rerun()
+                    else:
+                        st.error("Please enter a channel name")
+        
+        # Join existing channels
+        with st.expander("🔍 Browse Channels"):
+            try:
+                # Get all public channels
+                all_channels_result = auth_supabase.table("channels")\
+                    .select("*")\
+                    .eq("is_private", False)\
+                    .execute()
+                
+                user_channel_ids = [ch["id"] for ch in channels]
+                available_channels = [ch for ch in all_channels_result.data if ch["id"] not in user_channel_ids]
+                
+                for channel in available_channels:
                     col1, col2 = st.columns([3, 1])
                     with col1:
-                        st.markdown(f"**Message:** {msg['content']}")
-                        st.caption(f"User: {msg['user_id'][:8]}... | {formatted_time}")
-                    st.divider()
-        else:
-            st.info("No messages yet. Be the first to post!")
+                        st.write(f"#{channel['name']}")
+                        if channel.get('description'):
+                            st.caption(channel['description'])
+                    with col2:
+                        if st.button("Join", key=f"join_{channel['id']}", use_container_width=True):
+                            if join_channel(auth_supabase, user_id, channel['id']):
+                                st.success("Joined!")
+                                time.sleep(1)
+                                st.rerun()
+                            
+            except Exception as e:
+                st.error(f"Error loading channels: {e}")
+    
+    # Main chat area
+    if st.session_state.view_mode == "channel" and st.session_state.current_channel:
+        current_channel = st.session_state.current_channel
+        
+        # Channel header
+        st.markdown(f"## #{current_channel['name']}")
+        if current_channel.get('description'):
+            st.caption(current_channel['description'])
+    
+    elif st.session_state.view_mode == "dm" and st.session_state.current_dm_user:
+        current_dm_user = st.session_state.current_dm_user
+        
+        # DM header
+        col1, col2 = st.columns([1, 10])
+        with col1:
+            if current_dm_user.get('avatar_url'):
+                st.markdown(f'<img src="{current_dm_user["avatar_url"]}" width="40" style="border-radius: 50%;">', unsafe_allow_html=True)
+            else:
+                st.markdown("👤")
+        with col2:
+            st.markdown(f"## {current_dm_user.get('display_name') or current_dm_user.get('username', 'User')}")
+            st.caption("Direct Message")
+        
+    # Auto-refresh messages
+    if st.session_state.view_mode in ["channel", "dm"]:
+        if time.time() - st.session_state.last_refresh > 5:  # Refresh every 5 seconds
+            st.session_state.last_refresh = time.time()
+            st.rerun()
+        
+        # Messages container
+        messages_container = st.container()
+        
+        with messages_container:
+            # Get and display messages
+            if st.session_state.view_mode == "channel" and st.session_state.current_channel:
+                messages = get_channel_messages(auth_supabase, st.session_state.current_channel['id'])
+                context_name = f"#{st.session_state.current_channel['name']}"
+            elif st.session_state.view_mode == "dm" and st.session_state.current_dm_user:
+                messages = get_direct_messages(auth_supabase, user_id, st.session_state.current_dm_user['id'])
+                context_name = f"@{st.session_state.current_dm_user.get('display_name') or st.session_state.current_dm_user.get('username', 'User')}"
+            else:
+                messages = []
+                context_name = ""
             
-    except Exception as e:
-        st.error(f"Error loading messages: {e}")
-        st.info("Make sure the schema.sql has been run in Supabase Dashboard")
+            if messages:
+                for msg in messages:
+                    # Message container
+                    msg_container = st.container()
+                    
+                    with msg_container:
+                        col1, col2 = st.columns([1, 20])
+                        
+                        with col1:
+                            # Avatar
+                            if msg.get('user_profiles') and msg['user_profiles'].get('avatar_url'):
+                                st.markdown(f'<img src="{msg["user_profiles"]["avatar_url"]}" width="32" style="border-radius: 50%;">', unsafe_allow_html=True)
+                            else:
+                                st.markdown("👤")
+                        
+                        with col2:
+                            # Message header
+                            user_name = "Unknown User"
+                            if msg.get('user_profiles'):
+                                user_name = msg['user_profiles'].get('display_name') or msg['user_profiles'].get('username') or "User"
+                            
+                            time_str = format_message_time(msg['created_at'])
+                            
+                            st.markdown(f"**{user_name}** <small style='color: #666;'>{time_str}</small>", unsafe_allow_html=True)
+                            
+                            # Message content
+                            st.markdown(msg['content'])
+                            
+                            # Reactions and actions
+                            col_reactions, col_actions = st.columns([4, 1])
+                            
+                            with col_reactions:
+                                # Get and display reactions
+                                reactions = get_message_reactions(auth_supabase, msg['id'])
+                                
+                                if reactions:
+                                    # Group reactions by emoji
+                                    reaction_counts = {}
+                                    user_reactions = {}
+                                    
+                                    for reaction in reactions:
+                                        emoji = reaction['emoji']
+                                        if emoji not in reaction_counts:
+                                            reaction_counts[emoji] = 0
+                                            user_reactions[emoji] = []
+                                        reaction_counts[emoji] += 1
+                                        user_reactions[emoji].append(reaction['user_profiles']['display_name'] or reaction['user_profiles']['username'])
+                                    
+                                    # Display reaction buttons
+                                    reaction_cols = st.columns(len(reaction_counts))
+                                    for i, (emoji, count) in enumerate(reaction_counts.items()):
+                                        with reaction_cols[i]:
+                                            # Check if current user has reacted with this emoji
+                                            user_has_reacted = any(r['user_id'] == user_id and r['emoji'] == emoji for r in reactions)
+                                            button_type = "primary" if user_has_reacted else "secondary"
+                                            
+                                            if st.button(f"{emoji} {count}", key=f"reaction_{msg['id']}_{emoji}", type=button_type):
+                                                if user_has_reacted:
+                                                    remove_reaction(auth_supabase, msg['id'], user_id, emoji)
+                                                else:
+                                                    add_reaction(auth_supabase, msg['id'], user_id, emoji)
+                                                st.rerun()
+                            
+                            with col_actions:
+                                # Quick reaction buttons
+                                reaction_col1, reaction_col2, reaction_col3 = st.columns(3)
+                                with reaction_col1:
+                                    if st.button("👍", key=f"quick_thumbs_up_{msg['id']}", help="Add thumbs up"):
+                                        add_reaction(auth_supabase, msg['id'], user_id, "👍")
+                                        st.rerun()
+                                with reaction_col2:
+                                    if st.button("❤️", key=f"quick_heart_{msg['id']}", help="Add heart"):
+                                        add_reaction(auth_supabase, msg['id'], user_id, "❤️")
+                                        st.rerun()
+                                with reaction_col3:
+                                    if st.button("😄", key=f"quick_laugh_{msg['id']}", help="Add laugh"):
+                                        add_reaction(auth_supabase, msg['id'], user_id, "😄")
+                                        st.rerun()
+                    
+                    st.divider()
+            else:
+                st.info(f"No messages in {context_name} yet. Start the conversation!")
+        
+        # Message input (fixed at bottom)
+        st.divider()
+        
+        with st.form("message_form", clear_on_submit=True):
+            col1, col2 = st.columns([5, 1])
+            
+            with col1:
+                message_input = st.text_area(
+                    "Message",
+                    placeholder=f"Message {context_name}",
+                    height=80,
+                    label_visibility="collapsed"
+                )
+            
+            with col2:
+                st.markdown("<br>", unsafe_allow_html=True)  # Spacing
+                send_button = st.form_submit_button("Send", type="primary", use_container_width=True)
+            
+            if send_button and message_input.strip():
+                # Send message
+                if st.session_state.view_mode == "channel" and st.session_state.current_channel:
+                    sent_message = send_message(auth_supabase, user_id, st.session_state.current_channel['id'], message_input)
+                elif st.session_state.view_mode == "dm" and st.session_state.current_dm_user:
+                    sent_message = send_direct_message(auth_supabase, user_id, st.session_state.current_dm_user['id'], message_input)
+                else:
+                    sent_message = None
+                
+                if sent_message:
+                    st.session_state.message_count += 1
+                    time.sleep(0.5)  # Brief pause to let message propagate
+                    st.rerun()
+    
+    else:
+        st.markdown("## Welcome to Abdullah Slack! 👋")
+        st.markdown("Select a channel or start a direct message from the sidebar to begin chatting.")
+        
+        channels = get_user_channels(auth_supabase, user_id)
+        if not channels:
+            st.info("You're not a member of any channels yet. Join the #general channel from the sidebar!")
 
 else:
-    # User is not authenticated
-    st.subheader("👤 Authentication")
-    st.info("Please sign in with GitHub to post and view messages")
+    # User not authenticated
+    st.markdown("# 💬 Abdullah Slack")
+    st.markdown("### Real-time team collaboration made simple")
     
-    # Note about authentication options
-    st.markdown("---")
-    st.markdown("**Authentication Options:**")
-    st.success("✅ **GitHub OAuth** - Click 'Sign up with github' button above (recommended)")
-    st.warning("⚠️ **Email/Password** - Not implemented in this MVP. You would need to:")
-    with st.expander("How to implement email/password auth"):
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
         st.markdown("""
-        1. **Enable email auth in Supabase:**
-           - Go to Authentication → Settings in Supabase Dashboard
-           - Enable email confirmations
-           - Configure email templates
+        **Features:**
+        - 📋 **Channels & Workspaces** - Organize conversations by topic
+        - 💬 **Real-time Messaging** - Chat with your team instantly  
+        - 👥 **User Profiles** - GitHub integration with avatars
+        - 🔒 **Secure** - Row-level security with Supabase
+        - 📱 **Responsive** - Works on desktop and mobile
         
-        2. **Add signup/verification logic:**
-           - Handle email verification flows
-           - Add password reset functionality
-           - Implement user profile management
-        
-        3. **Update RLS policies:**
-           - Ensure policies work for both OAuth and email users
-        
-        **For this demo, use GitHub authentication instead.**
+        **Sign in with GitHub to get started!**
         """)
     
-    # The login form is automatically displayed above
+    st.divider()
+    st.markdown("*Built for the Longhorn Startup assignment by Abdullah*")
 
-# Footer
-st.divider()
-st.caption("🚀 Longhorn Preflight - Streamlit + Supabase MVP with streamlit-supabase-auth")
+# Auto-refresh indicator
+if session and st.session_state.current_channel:
+    with st.empty():
+        st.markdown(f'<div style="position: fixed; top: 10px; right: 10px; background: rgba(0,0,0,0.7); color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">Auto-refresh: {5 - int(time.time() - st.session_state.last_refresh)}s</div>', unsafe_allow_html=True)
